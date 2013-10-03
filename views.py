@@ -46,6 +46,7 @@ def create_account(request):
 
 
 @csrf_exempt
+# TODO: Transfer administrator status to active games
 def delete_account(request):
     user = validate_mobile(request)
     if user == None:
@@ -54,8 +55,229 @@ def delete_account(request):
     return respond("success")
 
 @csrf_exempt
+# TODO: Honor settings in request
 def create_game(request):
     user = validate_mobile(request)
     if user == None:
         return respond("Error: Invalid Login Credentials")
+
+    game = Game(administrator=user)
+    game.save()
+    player = game.add_player(Account.objects.get(user=user)) 
+    response_data = {
+        "message":"success",
+        "game_id":game.id,
+        "player_id":player.id,
+    }
+    return respond(response_data)
+
+@csrf_exempt
+def join_game(request):
+    user = validate_mobile(request)
+    if user == None:
+        return respond("Error: Invalid Login Credentials")
+
+    try:
+        game = Game.objects.get(id=request.POST['game_id'])
+    except:
+        return respond("Error: Game does not exist")
     
+    if len(Player.objects.filter(account__user=user, game=game)) > 0:
+        return respond("Error: You've already joined that game")
+    
+    player = game.add_player(Account.objects.get(user=user))
+    response_data = {
+        "message":"success",
+        "player_id":player.id,
+    }
+    return respond(response_data)
+
+
+@csrf_exempt
+def restart_game(request):
+    user = validate_mobile(request)
+    if user == None:
+        return respond("Error: Invalid Login Credentials")
+
+    try:
+        game = Game.objects.get(id=request.POST['game_id'])
+    except:
+        return respond("Error: Game does not exist")
+
+    if game.administrator != user:
+        return respond("Error: You are not the administrator")
+
+    game.restart()
+    return respond("success")
+
+@csrf_exempt
+def post_position(request):
+    user = validate_mobile(request)
+    if user == None:
+        return respond("Error: Invalid Login Credentials")
+     
+    try:
+        game = Game.objects.get(id=request.POST['game_id'])
+    except:
+        return respond("Error: Game does not exist")
+    
+    try:
+        player = Player.objects.get(account__user=user, game=game)
+    except:
+        return respond("Error: No player in game")
+
+    try:
+        player.latitude = request.POST['latitude']
+        player.longitude = request.POST['longitude']
+    except:
+        return respond("Error: Invalid position")
+
+    player.save()
+    return respond("success")
+
+
+@csrf_exempt
+def get_votable_players(request):
+    user = validate_mobile(request)
+    if user == None:
+        return respond("Error: Invalid Login Credentials")
+     
+    try:
+        game = Game.objects.get(id=request.POST['game_id'])
+    except:
+        return respond("Error: Game does not exist")
+     
+    try:
+        player = Player.objects.get(account__user=user, game=game)
+    except:
+        return respond("Error: No player in game")
+    
+    votable_players = str(game.get_votable_players(player)) #Return a list
+
+    response_data = {
+        'votable_players':votable_players,
+    }
+    return respond(response_data)
+
+@csrf_exempt
+def place_vote(request):
+    user = validate_mobile(request)
+    if user == None:
+        return respond("Error: Invalid Login Credentials")
+     
+    try:
+        game = Game.objects.get(id=request.POST['game_id'])
+    except:
+        return respond("Error: Game does not exist")
+
+    try:
+        voter = Player.objects.get(account__user=user, game=game)
+    except:
+        return respond("Error: No player in game")
+    
+    try:
+        votee = Player.objects.get(id=request.POST['votee_id'])
+    except:
+        return respond("Error: Player not found.")
+
+    if votee == voter:
+        return respond("Error: You cannot vote for yourself")
+
+    if votee.game != voter.game:
+        return respond("Error: Players cannot vote outside of their game.")
+
+    voter.vote = votee
+    voter.save()
+    return respond("success")
+
+
+@csrf_exempt
+# TODO: Order this and include more information (#games, win% etc)
+def get_highscores(request):
+    top_accounts = Account.objects.all().order_by('experience')[:10]
+    highscores = {}
+    for account in top_accounts:
+        highscores[str(account.user)] = account.experience
+    return respond({'highscores':highscores})
+   
+
+@csrf_exempt
+def get_smellable_players(request):
+    user = validate_mobile(request)
+    if user == None:
+        return respond("Error: Invalid Login Credentials")
+     
+    try:
+        game = Game.objects.get(id=request.POST['game_id'])
+    except:
+        return respond("Error: Game does not exist")
+     
+    smellable_players = str(game.get_smellable_players(player)) #Return a list
+    response_data = {
+        'smellable_players':smellable_players,
+    }
+    return respond(response_data)
+
+#TODO: Write test cases for smellable and killable
+ 
+@csrf_exempt
+def get_killable_players(request):
+    user = validate_mobile(request)
+    if user == None:
+        return respond("Error: Invalid Login Credentials")
+     
+    try:
+        game = Game.objects.get(id=request.POST['game_id'])
+    except:
+        return respond("Error: Game does not exist")
+     
+    killable_players = str(game.get_killable_players(player)) #Return a list
+    response_data = {
+        'killable_players':killable_players,
+    }
+    return respond(response_data)
+
+@csrf_exempt
+def kill(request): 
+    user = validate_mobile(request)
+    if user == None:
+        return respond("Error: Invalid Login Credentials")
+    
+    try:
+        game = Game.objects.get(id=request.POST['game_id'])
+    except:
+        return respond("Error: Game does not exist")
+    
+    try:
+        killer = Player.objects.get(account__user=user, game=game)
+    except:
+        return respond("Error: No player in game")
+    
+    try:
+        victim = Player.objects.get(id=request.POST['victim_id'])
+        assert(victim.game.id == killer.game.id)
+        assert(victim.is_wolf == False)
+        assert(victim.is_dead == False)
+        #assert(killer.is_wolf) #Temporarily disabled for testing. 
+    except:
+        return respond("Error: Invalid target")
+
+    if killer.in_kill_range(victim):
+        kill = killer.kill(victim)
+    else:
+        return respond("Error: Victim out of range")
+
+    response_data = {
+        "kill": str(kill), #TODO: write serialization methods
+        "message":"success",
+    }
+    return respond(response_data)
+
+
+        
+
+     
+
+
+     
+
