@@ -1,6 +1,7 @@
 from django.db import models
 from django.contrib.auth.models import User
 from datetime import datetime
+from django.utils import timezone
 import math #for distance calculations
 
 class Badge(models.Model):
@@ -13,7 +14,7 @@ class Badge(models.Model):
 
 
 class Game(models.Model):
-    start_time = models.DateField(auto_now_add=True) #use current time.
+    start_time = models.DateTimeField(auto_now_add=True) #use current time.
     cycle_length = models.IntegerField(default=720) #12 hours
     in_progress = models.BooleanField(default=True)
     name = models.CharField(max_length=31, null=True, blank=True)
@@ -33,7 +34,7 @@ class Game(models.Model):
         return player
 
     def restart(self):
-        # Restore dead players and clear their votes
+        # Restore dead players and clear their current votes
         players = Player.objects.filter(game = self)
         for player in players:
             player.vote = None
@@ -62,6 +63,11 @@ class Game(models.Model):
              if asker.in_scent_range(player):
                  players_in_range.append(player)
         return players_in_range
+
+    def is_day(self):
+        datetime_diff = (timezone.now() - self.start_time).seconds / 60
+        num_cycles = datetime_diff / self.cycle_length
+        return (num_cycles % 2 == 0)
 
 
 class Account(models.Model):
@@ -92,10 +98,12 @@ class Player(models.Model):
         return distance <= self.game.scent_range
      
     def kill(self, other):
+        self.account.experience += 5
+        self.account.save()
         other.is_dead = True
+        other.save()
         kill = Kill(killer=self, victim=other, latitude=other.latitude, longitude=other.longitude)
         kill.save()
-        other.save()
         return kill
 
 class Kill(models.Model):
