@@ -23,6 +23,12 @@ def validate_mobile(request):
       return None
   return authenticate(username=username, password=password)
 
+def validate_game(request):
+    try:
+        return Game.objects.get(id=request.POST['game_id'])
+    except:
+        return None
+    
 
 # Helper method for returning json responses
 def respond(response_data):
@@ -77,9 +83,8 @@ def join_game(request):
     if user == None:
         return respond("Error: Invalid Login Credentials")
 
-    try:
-        game = Game.objects.get(id=request.POST['game_id'])
-    except:
+    game = validate_game(request)
+    if game == None:
         return respond("Error: Game does not exist")
     
     if len(Player.objects.filter(account__user=user, game=game)) > 0:
